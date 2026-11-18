@@ -21,21 +21,37 @@ st.subheader("Kalshi 15m BTC Edge Engine")
 col_a, col_b, col_c = st.columns(3)
 manual_strike = col_a.number_input("Kalshi Strike (0 = Auto 15m Open)", value=0.0, step=1.0)
 pivot_len = col_b.slider("Supply/Demand Pivot Strength", 2, 10, 4)
-refresh_sec = col_c.selectbox("Refresh Speed (sec)", [2, 5, 10], index=0)
+refresh_sec = col_c.selectbox("Refresh Speed (sec)", [2, 3, 5, 10], index=0)
+
+HEADERS = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"}
 
 @st.cache_data(ttl=1)
 def get_live_data():
-    url = "https://coinbase.com"
-    r = requests.get(url, timeout=5)
-    data = r.json()
-    df = pd.DataFrame(data, columns=["time", "low", "high", "open", "close", "volume"])
+    kr_ohlc = requests.get(
+        "https://kraken.com",
+        headers=HEADERS,
+        timeout=5,
+    ).json()
+    raw = kr_ohlc["result"]["XXBTZUSD"]
+    df = pd.DataFrame(raw, columns=["time", "open", "high", "low", "close", "vwap", "volume", "count"])
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = df[col].astype(float)
     df["time"] = pd.to_datetime(df["time"], unit="s", utc=True).dt.tz_convert("America/New_York")
     df = df.sort_values("time").tail(60).reset_index(drop=True)
 
-    kr = requests.get("https://kraken.com", timeout=5).json()
-    kraken_price = float(kr["result"]["XXBTZUSD"]["c"][0])
-    cb_price = float(df["close"].iloc[-1])
-    brti_est = (cb_price + kraken_price) / 2.0
+    prices = [float(df["close"].iloc[-1])]
+    try:
+        bs = requests.get("https://bitstamp.net", headers=HEADERS, timeout=3).json()
+        prices.append(float(bs["last"]))
+    except Exception:
+        pass
+    try:
+        gm = requests.get("https://gemini.com", headers=HEADERS, timeout=3).json()
+        prices.append(float(gm["last"]))
+    except Exception:
+        pass
+
+    brti_est = sum(prices) / len(prices)
     return df, brti_est
 
 try:
